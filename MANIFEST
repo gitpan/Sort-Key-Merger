@@ -1,0 +1,7 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Sort-Key-Merger.t
+lib/Sort/Key/Merger.pm
+META.yml                                 Module meta-data (added by MakeMaker)
