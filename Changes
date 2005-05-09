@@ -1,5 +1,8 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.02  May 4, 2005
+	- README updated
+
 0.01  Wed May  4 03:50:05 2005
 	- original version; created by h2xs 1.23 with options
 		-AXn Sort::Key::Merger
