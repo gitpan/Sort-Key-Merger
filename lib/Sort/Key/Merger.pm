@@ -1,6 +1,6 @@
 package Sort::Key::Merger;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use strict;
 use warnings;
@@ -99,6 +99,7 @@ Sort::Key::Merger - Perl extension for merging sorted things
       # don't get confused by this while loop, it's only
       # used to ignore empty lines
       my $fh = $_[0];
+      local $_; # break $_ aliasing;
       while (<$fh>) {
 	  next if /^\s*$/;
 	  chomp;
@@ -181,6 +182,7 @@ perdure between calls from the same generator, i.e.:
 	  or croak "unable to open $_";
 
       my $fh = $_[0];
+      local $_;
       while (<$fh>) {
 	  chomp;
 	  return $_ => $_;

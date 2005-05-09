@@ -1,5 +1,9 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.03  May 4, 2005
+	- correct bad examples on the docs, while(<>) {...} doesn't
+	  localize $_ !
+
 0.02  May 4, 2005
 	- README updated
 
