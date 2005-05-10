@@ -1,6 +1,10 @@
 Revision history for Perl extension Sort::Key::Merger.
 
-0.03  May 4, 2005
+0.04  May 10, 2005
+	- add filekeymerger set of functions
+	- new tests for file functions
+
+0.03  May 9, 2005
 	- correct bad examples on the docs, while(<>) {...} doesn't
 	  localize $_ !
 

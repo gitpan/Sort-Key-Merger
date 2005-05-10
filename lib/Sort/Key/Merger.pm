@@ -1,6 +1,6 @@
 package Sort::Key::Merger;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use strict;
 use warnings;
@@ -8,7 +8,8 @@ use Carp;
 
 require Exporter;
 our @ISA = qw(Exporter);
-our @EXPORT_OK = qw(keymerger ikeymerger nkeymerger);
+our @EXPORT_OK = qw(keymerger ikeymerger nkeymerger
+		    filekeymerger fileikeymerger filenkeymerger);
 
 sub _resort ($\@) {
     my $le=shift;
@@ -73,6 +74,69 @@ sub ikeymerger (&@) {  _merger_maker(sub { int($_[0]) <= int($_[1])}, @_) }
 
 sub nkeymerger (&@) {  _merger_maker(sub { $_[0] <= $_[1]}, @_) }
 
+# use Data::Dumper;
+
+sub _file_merger_maker {
+    my ($le, $sub, @args)=@_;
+    my @src;
+    for my $file (@args) {
+	my $fh;
+	if (UNIVERSAL::isa($file, 'GLOB')) {
+	    $fh=$file;
+	}
+	else {
+	    open $fh, '<', $file
+		or croak "unable to open '$file'";
+	}
+	local $/ = $/;
+	local $_;
+	while(<$fh>) {
+	    if (defined(my $k = &{$sub})) {
+		unshift @src, [$k, $_, $fh, $/];
+		_resort($le, @src);
+		last;
+	    }
+	}
+    }
+
+    # print Dumper(\@src);
+
+    my $gen;
+    $gen = sub {
+	if (wantarray) {
+	    my @all;
+	    while(@src) {
+		push @all, scalar(&$gen);
+	    }
+	    return @all;
+	}
+	else {
+	    if (@src) {
+		my $src=$src[0];
+		my $old_v=$src->[1];
+		local *_ = \($src->[1]);
+		local */ = \($src->[3]);   # emacs syntax higlighting breaks here/;
+		my $fh=$src->[2];
+		while(<$fh>) {
+		    if (defined ($src->[0]=&{$sub})) {
+			_resort($le, @src);
+			return $old_v;
+		    }
+		}
+		shift @src;
+		return $old_v;
+	    }
+	    return undef
+	}
+    };
+}
+
+sub filekeymerger (&@) { _file_merger_maker(sub { $_[0] le $_[1] }, @_) }
+
+sub fileikeymerger (&@) { _file_merger_maker(sub { int($_[0]) <= int($_[1]) }, @_) }
+
+sub filenkeymerger (&@) { _file_merger_maker(sub { $_[0] <= $_[1] }, @_) }
+
 
 1;
 __END__
@@ -83,7 +147,7 @@ Sort::Key::Merger - Perl extension for merging sorted things
 
 =head1 SYNOPSIS
 
-  use Sort::Key::Merger;
+  use Sort::Key::Merger qw(keymerger);
 
   sub line_key_value {
 
@@ -199,6 +263,43 @@ is like C<keymerger> but compares the keys as integers.
 
 is like C<keymerger> but compares the keys numerically.
 
+=item filekeymerger { generate_key } @files;
+
+returns a merger subroutine that returns lines read from C<@files>
+sorted by the keys that C<generate_key> generates.
+
+C<@files> can contain file names or handles for already open files.
+
+C<generate_key> is called with the line just read on C<$_> and has to
+return the sorting key for it. If its return value is C<undef> the
+line is ignored.
+
+The line can be modified inside C<generate_key> changing C<$_>, i.e.:
+
+  my $merger = filekeymerger {
+      chomp($_); #             <-- here
+      return undef if /^\s*$/;
+      substr($_, -1, 10)
+  } @ARGV;
+
+
+Finally, C<$/> can be changed from its default value to read the files
+in chunks other than lines.
+
+The return value from this function is a subroutine reference that on
+successive calls returns the sorted elements; or all elements in one
+go when called in list context, i.e.:
+
+  my $merger = filekeymerger { (split)[0] } @ARGV;
+  my @sorted = $merger->();
+
+=item fileikeymerger { generate_key } @files;
+
+is like C<filekeymerger> but the keys are compared as integers.
+
+=item filenkeymerger { generate_key } @files;
+
+is like C<filekeymerger> but the keys are compared numerically.
 
 =back
 
