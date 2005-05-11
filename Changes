@@ -1,5 +1,8 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.05  May 11, 2005
+	- testing data files were not included on MANIFEST
+
 0.04  May 10, 2005
 	- add filekeymerger set of functions
 	- new tests for file functions
