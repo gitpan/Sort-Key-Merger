@@ -1,5 +1,13 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.06  May 12, 2005
+	- nkeymerger and nfilekeymerger honours "use integer" pragma
+	- keymerger and filekkeymerger honours "use locale" pragma
+	- INCOMPATIBLE CHANGE: ikeymerge and fileikeymerge removed.
+	- INCOMPATIBLE CHANGE: filenkeymerger renamed to
+	  nfilekeymerger.
+	- private _resort function rewritten in C/XS
+
 0.05  May 11, 2005
 	- testing data files were not included on MANIFEST
 

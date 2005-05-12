@@ -9,8 +9,8 @@ use Test::More tests => 1+3*4*4;
 
 BEGIN { use_ok('Sort::Key::Merger') };
 
-use Sort::Key qw(keysort ikeysort nkeysort);
-use Sort::Key::Merger qw(keymerger ikeymerger nkeymerger);
+use Sort::Key qw(keysort nkeysort);
+use Sort::Key::Merger qw(keymerger nkeymerger);
 
 # use Scalar::Quote ':short';
 
@@ -71,10 +71,11 @@ for my $i (sizes) {
 	}
 
 	{
-	    my $merger = ikeymerger \&key_value, (map { [ikeysort { make_key($_)} @$_] } @srcs);
+	    use integer;
+	    my $merger = nkeymerger \&key_value, (map { [nkeysort { make_key($_)} @$_] } @srcs);
 
 	    my @ksm = &$merger;
-	    my @ks = ikeysort { make_key($_) } (map { @$_ } @srcs);
+	    my @ks = nkeysort { make_key($_) } (map { @$_ } @srcs);
 
 	    # D("@ksm", "@ks") and print "$a is not the same as\n$b\n";
 

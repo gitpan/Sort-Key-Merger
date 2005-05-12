@@ -1,6 +1,6 @@
 package Sort::Key::Merger;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use strict;
 use warnings;
@@ -8,33 +8,44 @@ use Carp;
 
 require Exporter;
 our @ISA = qw(Exporter);
-our @EXPORT_OK = qw(keymerger ikeymerger nkeymerger
-		    filekeymerger fileikeymerger filenkeymerger);
+our @EXPORT_OK = qw(keymerger nkeymerger
+		    filekeymerger nfilekeymerger);
 
-sub _resort ($\@) {
-    my $le=shift;
-    my $src=shift;
-    if (@$src > 1){
-	my $k = $src->[0][0];
-	return if $le->($k, $src->[1][0]);
+require XSLoader;
+XSLoader::load('Sort::Key::Merger', $VERSION);
 
-	my $i;
-	for ($i=2; $i<@$src; $i++) {
-	    last if ($le->($k, $src->[$i][0]));
-	}
-	$i--;
-	@{$src}[0..$i]=(@{$src}[1..$i], ${$src}[0]);
-    }
+use constant STR_SORT => 0;
+use constant LOC_STR_SORT => 1;
+use constant NUM_SORT => 2;
+use constant INT_SORT => 3;
+
+use constant KEY => 0;
+use constant KEY1 => 1;
+use constant VALUE => 2;
+use constant FILE => 3;
+use constant SCRATCHPAD => 4;
+use constant RS => 4;
+
+my ($int_hints, $locale_hints);
+BEGIN {
+    use integer;
+    $int_hints = $integer::hint_bits || 0x1;
+
+    use locale;
+    $locale_hints = $locale::hint_bits || 0x4;
+
+    # print STDERR "locale: $locale_hints, int: $int_hints\n";
 }
 
 sub _merger_maker {
-    my ($le, $sub, @args)=@_;
+    my ($cmp, $sub, @args)=@_;
     my @src;
+    my $i=0;
     for (@args) {
-	my $scratch;
-	if (my ($k, $v) = &{$sub}($scratch)) {
-	    unshift @src, [$k, $v, $_, $scratch];
-	    _resort($le, @src);
+	my $scratchpad;
+	if (my ($k, $v) = &{$sub}($scratchpad)) {
+	    unshift @src, [$k, $i++, $v, $_, $scratchpad];
+	    _resort($cmp, \@src);
 	}
     }
     my $gen;
@@ -50,13 +61,13 @@ sub _merger_maker {
 	else {
 	    my $old_v;
 	    if (@src) {
-		$old_v=$src[0][1];
-		for ($src[0][2]) {
-		    if (my @kv = &{$sub}($src[0][3])) {
+		my $src=$src[KEY];
+		$old_v=$src->[VALUE];
+		for ($src[0][FILE]) {
+		    if (my @kv = &{$sub}($src->[SCRATCHPAD])) {
 			@kv == 2 or croak 'wrong number of return values from merger callback';
-			$src[0][0] = $kv[0];
-			$src[0][1] = $kv[1];
-			_resort($le, @src);
+			@{$src}[KEY, VALUE] = @kv;
+			_resort($cmp, \@src);
 		    }
 		    else {
 			shift @src;
@@ -68,17 +79,24 @@ sub _merger_maker {
     };
 }
 
-sub keymerger (&@) {  _merger_maker(sub { $_[0] le $_[1]}, @_) }
+sub keymerger (&@) {
+    my $sort = ((caller(0))[8] & $locale_hints)
+	? LOC_STR_SORT : STR_SORT;
+    _merger_maker( $sort, @_ )
+}
 
-sub ikeymerger (&@) {  _merger_maker(sub { int($_[0]) <= int($_[1])}, @_) }
+sub nkeymerger (&@) {
+    my $sort = ((caller(0))[8] & $int_hints)
+	? INT_SORT : NUM_SORT;
+    _merger_maker( $sort, @_ )
+}
 
-sub nkeymerger (&@) {  _merger_maker(sub { $_[0] <= $_[1]}, @_) }
 
-# use Data::Dumper;
 
 sub _file_merger_maker {
-    my ($le, $sub, @args)=@_;
+    my ($cmp, $sub, @args)=@_;
     my @src;
+    my $i = 0;
     for my $file (@args) {
 	my $fh;
 	if (UNIVERSAL::isa($file, 'GLOB')) {
@@ -92,8 +110,8 @@ sub _file_merger_maker {
 	local $_;
 	while(<$fh>) {
 	    if (defined(my $k = &{$sub})) {
-		unshift @src, [$k, $_, $fh, $/];
-		_resort($le, @src);
+		unshift @src, [$k, $i++, $_, $fh, $/];
+		_resort($cmp, \@src);
 		last;
 	    }
 	}
@@ -113,13 +131,13 @@ sub _file_merger_maker {
 	else {
 	    if (@src) {
 		my $src=$src[0];
-		my $old_v=$src->[1];
-		local *_ = \($src->[1]);
-		local */ = \($src->[3]);   # emacs syntax higlighting breaks here/;
-		my $fh=$src->[2];
+		my $old_v=$src->[VALUE];
+		local *_ = \($src->[VALUE]);
+		local */ = \($src->[RS]);   # emacs syntax higlighting breaks here/;
+		my $fh=$src->[FILE];
 		while(<$fh>) {
-		    if (defined ($src->[0]=&{$sub})) {
-			_resort($le, @src);
+		    if (defined ($src->[KEY]=&{$sub})) {
+			_resort($cmp, \@src);
 			return $old_v;
 		    }
 		}
@@ -131,11 +149,18 @@ sub _file_merger_maker {
     };
 }
 
-sub filekeymerger (&@) { _file_merger_maker(sub { $_[0] le $_[1] }, @_) }
 
-sub fileikeymerger (&@) { _file_merger_maker(sub { int($_[0]) <= int($_[1]) }, @_) }
+sub filekeymerger (&@) {
+    my $sort = ((caller(0))[8] & $locale_hints)
+	? LOC_STR_SORT : STR_SORT;
+    _file_merger_maker( $sort, @_ )
+}
 
-sub filenkeymerger (&@) { _file_merger_maker(sub { $_[0] <= $_[1] }, @_) }
+sub nfilekeymerger (&@) {
+    my $sort = ((caller(0))[8] & $int_hints)
+	? INT_SORT : NUM_SORT;
+    _file_merger_maker( $sort, @_ )
+}
 
 
 1;
@@ -255,13 +280,13 @@ perdure between calls from the same generator, i.e.:
   } ('/tmp/foo', '/tmp/bar');
 
 
-=item ikeymerger { generate_key_value_pair } @sources
-
-is like C<keymerger> but compares the keys as integers.
+This function honours the C<use locale> pragma.
 
 =item nkeymerger { generate_key_value_pair } @sources
 
 is like C<keymerger> but compares the keys numerically.
+
+This function honours the C<use integer> pragma.
 
 =item filekeymerger { generate_key } @files;
 
@@ -293,19 +318,20 @@ go when called in list context, i.e.:
   my $merger = filekeymerger { (split)[0] } @ARGV;
   my @sorted = $merger->();
 
-=item fileikeymerger { generate_key } @files;
 
-is like C<filekeymerger> but the keys are compared as integers.
+This function honours the C<use locale> pragma.
 
-=item filenkeymerger { generate_key } @files;
+=item nfilekeymerger { generate_key } @files;
 
 is like C<filekeymerger> but the keys are compared numerically.
+
+This function honours the C<use integer> pragma.
 
 =back
 
 =head1 SEE ALSO
 
-L<Sort::Key>
+L<Sort::Key>, L<locale>, L<integer>, perl core L<sort> function.
 
 =head1 AUTHOR
 
