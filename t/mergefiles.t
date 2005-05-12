@@ -10,7 +10,7 @@ use Test::More tests => 30;
 use Sort::Key::Merger qw(nfilekeymerger);
 use Sort::Key qw(nkeysort);
 
-use Scalar::Quote ':short';
+# use Scalar::Quote ':short';
 
 my $merger1 = nfilekeymerger { (split)[0] } qw(t/data1 t/data2 t/data3);
 my $merger2 = nfilekeymerger{ (split)[0] } qw(t/data4);
