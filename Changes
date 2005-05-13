@@ -1,5 +1,8 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.08  May 13, 2005
+	- Merger.xs and ppport.h included MANIFEST
+
 0.07  May 12, 2005
 	- remove unused Quote::Scalar reference
 

@@ -9,4 +9,6 @@ t/data2
 t/data3
 t/data4
 lib/Sort/Key/Merger.pm
+Merger.xs
+ppport.h
 META.yml                                 Module meta-data (added by MakeMaker)
