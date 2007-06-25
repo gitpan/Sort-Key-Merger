@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Sort-Key-Merger
-version:             0.10_01
+version:             0.10_02
 abstract:            Perl extension for merging sorted things
 license:             ~
 generated_by:        ExtUtils::MakeMaker version 6.32

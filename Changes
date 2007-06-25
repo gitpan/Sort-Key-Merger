@@ -1,6 +1,13 @@
 Revision history for Perl extension Sort::Key::Merger.
 
-0.10  Jun 21, 2007
+0.10_02 Jun 25, 2007
+        - combinesub call was not taking into account value in
+          GENERATE_VALUE_KEYS_LIST callback.
+        - simplify merger code, remove a recursion level.
+        - handle extended types correctly
+        - some minor clean ups
+
+0.10_01 Jun 21, 2007
         - WARNING, major incompatible API changes introduced:
             + filekeymerger callbacks are now called in list context
             + changed the expected order of return values from callbacks

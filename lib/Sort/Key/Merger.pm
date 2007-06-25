@@ -1,12 +1,13 @@
 package Sort::Key::Merger;
 
-our $VERSION = '0.10_01';
+our $VERSION = '0.10_02';
 
 use strict;
 use warnings;
 use Carp;
 
 use Sort::Key::Types;
+our @CARP_NOT = qw(Sort::Key::Types);
 
 # use Data::Dumper qw(Dumper);
 
@@ -44,113 +45,113 @@ BEGIN {
 
 sub _make_merger {
     my $types = shift;
-    my $sub = shift;
+    my $typessub = shift;
+    my $vkgen = shift;
     my $typeslen = length $types;
     my $typesu = "$types\x04";
     my @src;
     my $i = 0;
     for (@_) {
 	my $scratchpad;
-	if (my ($v, @k) = &{$sub}($scratchpad)) {
-            @k == $typeslen
-                or croak "wrong number of return values from merger callback, $typeslen expected, "
-                    . scalar(@k) . " found";
+	if (my ($v, @k) = &{$vkgen}($scratchpad)) {
+            if ($typessub) {
+                @k = $typessub->(@k);
+            }
+            else {
+                @k == $typeslen
+                    or croak "wrong number of keys generated (expected "
+                        .($typeslen - 1).", returned ".(@k - 1).")";
+            }
 	    unshift @src, [$v, $_, $scratchpad, @k, $i++];
 	    _resort($typesu, \@src);
 	}
     }
-    my $gen;
-    $gen = sub {
-	if (wantarray) {
-            my $max = @_ ? $_[0] : 1;
-	    my @all;
-	    while((!defined($max) or $max--) and @src) {
-		push @all, scalar(&$gen);
+    sub {
+        my $max = @_ ? $_[0] : 1;
+        my @ret;
+        while (@src and $max--) {
+            my $src = $src[0];
+            push @ret, $src->[VALUE];
+            for ($src[0][FILE]) {
+                if (my ($v, @k) = &{$vkgen}($src->[SCRATCHPAD])) {
+                    if ($typessub) {
+                        @k = $typessub->(@k);
+                    }
+                    else {
+                        @k == $typeslen
+                            or croak "wrong number of keys generated (expected "
+                                .($typeslen - 1).", returned ".(@k - 1).")";
+                    }
+                    $src->[VALUE] = $v;
+                    splice @$src, KEY0, $typeslen, @k;
+                    _resort($typesu, \@src);
+                }
+                else {
+                    shift @src;
+                }
 	    }
-	    return @all;
 	}
-	else {
-	    my $old_v;
-	    if (@src) {
-		my $src = $src[0];
-		$old_v = $src->[VALUE];
-		for ($src[0][FILE]) {
-		    if (my ($v, @k) = &{$sub}($src->[SCRATCHPAD])) {
-			@k == $typeslen
-                            or croak "wrong number of return values from merger callback, $typeslen expected, "
-                                . scalar(@k) . " found";
-			$src->[VALUE] = $v;
-                        splice @$src, KEY0, $typeslen, @k;
-			_resort($typesu, \@src);
-                        # print "\@src: ", Dumper(\@src);
-		    }
-		    else {
-			shift @src;
-		    }
-		}
-	    }
-	    return $old_v;
-	}
+        wantarray ? @ret : $ret[-1];
     };
 }
 
 sub multikeymerger (&@) {
-    my $keygen = shift;
+    my $vkgen = shift;
     my $types = shift;
 
     ref($types) eq 'ARRAY'
         or croak "Usage: \$merger = multikeymerger { value_key() } \\\@types, \@args";
 
     my $ptypes = Sort::Key::Types::combine_types(@$types);
-    my $sub = Sort::Key::Types::combine_sub($keygen, undef, @$types);
+    my $typessub = Sort::Key::Types::combine_sub('@_', undef, @$types);
 
-    _make_merger($ptypes, $sub, @_);
+    _make_merger($ptypes, $typessub, $vkgen, @_);
 }
 
 sub keymerger (&@) {
     my $sort = ((caller(0))[8] & $locale_hints)
 	? LOC_STR_SORT : STR_SORT;
-    _make_merger( pack(C => $sort), @_ )
+    _make_merger( pack(C => $sort), undef, @_ )
 }
 
 sub rkeymerger (&@) {
     my $sort = ((caller(0))[8] & $locale_hints)
 	? LOC_STR_SORT : STR_SORT;
-    _make_merger( pack(C => $sort|REV_SORT), @_ )
+    _make_merger( pack(C => $sort|REV_SORT), undef, @_ )
 }
 
 sub nkeymerger (&@) {
     my $sort = ((caller(0))[8] & $int_hints)
 	? INT_SORT : NUM_SORT;
-    _make_merger( pack(C => $sort), @_ )
+    _make_merger( pack(C => $sort), undef, @_ )
 }
 
 sub rnkeymerger (&@) {
     my $sort = ((caller(0))[8] & $int_hints)
 	? INT_SORT : NUM_SORT;
-    _make_merger( pack(C => $sort|REV_SORT), @_ )
+    _make_merger( pack(C => $sort|REV_SORT), undef, @_ )
 }
 
 
 sub ikeymerger (&@) {
-    _make_merger( pack(C => UINT_SORT), @_ )
+    _make_merger( pack(C => UINT_SORT), undef, @_ )
 }
 
 sub rikeymerger (&@) {
-    _make_merger( pack(C => UINT_SORT|REV_SORT), @_ )
+    _make_merger( pack(C => UINT_SORT|REV_SORT), undef, @_ )
 }
 
 sub ukeymerger (&@) {
-    _make_merger( pack(C => UINT_SORT), @_ )
+    _make_merger( pack(C => UINT_SORT), undef, @_ )
 }
 
 sub rukeymerger (&@) {
-    _make_merger( pack(C => UINT_SORT|REV_SORT), @_ )
+    _make_merger( pack(C => UINT_SORT|REV_SORT), undef, @_ )
 }
 
 sub _make_file_merger {
     my $types = shift;
-    my $sub = shift;
+    my $kgen = shift;
     my $typeslen = length $types;
     my $typesu = "$types\x04";
     my @src;
@@ -167,7 +168,7 @@ sub _make_file_merger {
 	local $/ = $/;
 	local $_;
 	while(<$fh>) {
-            if (my @k = $sub->()) {
+            if (my @k = $kgen->()) {
                 @k == $typeslen
                     or croak "wrong number of return values from merger callback, $typeslen expected, "
                         . scalar(@k) . " found";
@@ -196,7 +197,7 @@ sub _make_file_merger {
 		local */ = \($src->[RS]);   # emacs syntax higlighting breaks here/;
 		my $fh = $src->[FILE];
 		while(<$fh>) {
-                    if (my @k = &{$sub}) {
+                    if (my @k = &{$kgen}) {
                         @k == $typeslen
                             or croak "wrong number of return values from merger callback, $typeslen expected, "
                                 . scalar(@k) . " found";
