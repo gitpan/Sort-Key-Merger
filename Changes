@@ -1,5 +1,18 @@
 Revision history for Perl extension Sort::Key::Merger.
 
+0.10  Jun 21, 2007
+        - WARNING, major incompatible API changes introduced:
+            + filekeymerger callbacks are now called in list context
+            + changed the expected order of return values from callbacks
+            + change behaviour in list context
+        - multikey support added
+        - support for uint type added
+        - support for reverse ordering added
+        - major changes to the documentation
+
+0.09  Sep 14, 2005
+	- minor bugs corrected
+
 0.08  May 13, 2005
 	- Merger.xs and ppport.h included MANIFEST
 

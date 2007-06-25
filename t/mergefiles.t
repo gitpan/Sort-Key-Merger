@@ -16,7 +16,7 @@ my $merger1 = nfilekeymerger { (split)[0] } qw(t/data1 t/data2 t/data3);
 my $merger2 = nfilekeymerger{ (split)[0] } qw(t/data4);
 
 my (@all1, @all2, $lkey);
-while (defined (my $current = $merger1->())) {
+while (my ($current) = $merger1->()) {
     push @all1, $current;
     my $key = (split(" ", $current))[0];
 
@@ -25,7 +25,7 @@ while (defined (my $current = $merger1->())) {
     $lkey=$key;
 }
 
-@all2 = nkeysort { (split)[0] } $merger2->();
+@all2 = nkeysort { (split)[0] } $merger2->(-1);
 
 is_deeply(\@all1, \@all2, "all");
 

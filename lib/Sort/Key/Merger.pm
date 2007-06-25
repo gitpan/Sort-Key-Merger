@@ -1,15 +1,21 @@
 package Sort::Key::Merger;
 
-our $VERSION = '0.08';
+our $VERSION = '0.10_01';
 
 use strict;
 use warnings;
 use Carp;
 
+use Sort::Key::Types;
+
+# use Data::Dumper qw(Dumper);
+
 require Exporter;
 our @ISA = qw(Exporter);
-our @EXPORT_OK = qw(keymerger nkeymerger
-		    filekeymerger nfilekeymerger);
+our @EXPORT_OK = qw(keymerger nkeymerger ikeymerger ukeymerger
+                    rkeymerger rnkeymerger rikeymerger rukeymerger
+		    filekeymerger nfilekeymerger ifilekeymerger ufilekeymerger
+		    rfilekeymerger rnfilekeymerger rifilekeymerger rufilekeymerger);
 
 require XSLoader;
 XSLoader::load('Sort::Key::Merger', $VERSION);
@@ -18,56 +24,65 @@ use constant STR_SORT => 0;
 use constant LOC_STR_SORT => 1;
 use constant NUM_SORT => 2;
 use constant INT_SORT => 3;
+use constant UINT_SORT => 4;
+use constant REV_SORT => 128;
 
-use constant KEY => 0;
-use constant KEY1 => 1;
-use constant VALUE => 2;
-use constant FILE => 3;
-use constant SCRATCHPAD => 4;
-use constant RS => 4;
+
+use constant VALUE => 0;
+use constant FILE => 1;
+use constant SCRATCHPAD => 2;
+use constant RS => 2;
+use constant KEY0 => 3;
 
 my ($int_hints, $locale_hints);
 BEGIN {
     use integer;
     $int_hints = $integer::hint_bits || 0x1;
-
     use locale;
     $locale_hints = $locale::hint_bits || 0x4;
-
-    # print STDERR "locale: $locale_hints, int: $int_hints\n";
 }
 
-sub _merger_maker {
-    my ($cmp, $sub, @args)=@_;
+sub _make_merger {
+    my $types = shift;
+    my $sub = shift;
+    my $typeslen = length $types;
+    my $typesu = "$types\x04";
     my @src;
-    my $i=0;
-    for (@args) {
+    my $i = 0;
+    for (@_) {
 	my $scratchpad;
-	if (my ($k, $v) = &{$sub}($scratchpad)) {
-	    unshift @src, [$k, $i++, $v, $_, $scratchpad];
-	    _resort($cmp, \@src);
+	if (my ($v, @k) = &{$sub}($scratchpad)) {
+            @k == $typeslen
+                or croak "wrong number of return values from merger callback, $typeslen expected, "
+                    . scalar(@k) . " found";
+	    unshift @src, [$v, $_, $scratchpad, @k, $i++];
+	    _resort($typesu, \@src);
 	}
     }
     my $gen;
     $gen = sub {
 	if (wantarray) {
+            my $max = @_ ? $_[0] : 1;
 	    my @all;
-	    my $next;
-	    while(defined($next = &$gen)) {
-		push @all, $next;
+	    while((!defined($max) or $max--) and @src) {
+		push @all, scalar(&$gen);
 	    }
 	    return @all;
 	}
 	else {
 	    my $old_v;
 	    if (@src) {
-		my $src=$src[KEY];
-		$old_v=$src->[VALUE];
+		my $src = $src[0];
+		$old_v = $src->[VALUE];
 		for ($src[0][FILE]) {
-		    if (my @kv = &{$sub}($src->[SCRATCHPAD])) {
-			@kv == 2 or croak 'wrong number of return values from merger callback';
-			@{$src}[KEY, VALUE] = @kv;
-			_resort($cmp, \@src);
+		    if (my ($v, @k) = &{$sub}($src->[SCRATCHPAD])) {
+			@k == $typeslen
+                            or croak "wrong number of return values from merger callback, $typeslen expected, "
+                                . scalar(@k) . " found";
+			$src->[VALUE] = $v;
+                        splice @$src, KEY0, $typeslen, @k;
+			_resort($typesu, \@src);
+                        # print "\@src: ", Dumper(\@src);
 		    }
 		    else {
 			shift @src;
@@ -79,28 +94,71 @@ sub _merger_maker {
     };
 }
 
+sub multikeymerger (&@) {
+    my $keygen = shift;
+    my $types = shift;
+
+    ref($types) eq 'ARRAY'
+        or croak "Usage: \$merger = multikeymerger { value_key() } \\\@types, \@args";
+
+    my $ptypes = Sort::Key::Types::combine_types(@$types);
+    my $sub = Sort::Key::Types::combine_sub($keygen, undef, @$types);
+
+    _make_merger($ptypes, $sub, @_);
+}
+
 sub keymerger (&@) {
     my $sort = ((caller(0))[8] & $locale_hints)
 	? LOC_STR_SORT : STR_SORT;
-    _merger_maker( $sort, @_ )
+    _make_merger( pack(C => $sort), @_ )
+}
+
+sub rkeymerger (&@) {
+    my $sort = ((caller(0))[8] & $locale_hints)
+	? LOC_STR_SORT : STR_SORT;
+    _make_merger( pack(C => $sort|REV_SORT), @_ )
 }
 
 sub nkeymerger (&@) {
     my $sort = ((caller(0))[8] & $int_hints)
 	? INT_SORT : NUM_SORT;
-    _merger_maker( $sort, @_ )
+    _make_merger( pack(C => $sort), @_ )
+}
+
+sub rnkeymerger (&@) {
+    my $sort = ((caller(0))[8] & $int_hints)
+	? INT_SORT : NUM_SORT;
+    _make_merger( pack(C => $sort|REV_SORT), @_ )
 }
 
 
+sub ikeymerger (&@) {
+    _make_merger( pack(C => UINT_SORT), @_ )
+}
 
-sub _file_merger_maker {
-    my ($cmp, $sub, @args)=@_;
+sub rikeymerger (&@) {
+    _make_merger( pack(C => UINT_SORT|REV_SORT), @_ )
+}
+
+sub ukeymerger (&@) {
+    _make_merger( pack(C => UINT_SORT), @_ )
+}
+
+sub rukeymerger (&@) {
+    _make_merger( pack(C => UINT_SORT|REV_SORT), @_ )
+}
+
+sub _make_file_merger {
+    my $types = shift;
+    my $sub = shift;
+    my $typeslen = length $types;
+    my $typesu = "$types\x04";
     my @src;
     my $i = 0;
-    for my $file (@args) {
+    for my $file (@_) {
 	my $fh;
 	if (UNIVERSAL::isa($file, 'GLOB')) {
-	    $fh=$file;
+	    $fh = $file;
 	}
 	else {
 	    open $fh, '<', $file
@@ -109,37 +167,44 @@ sub _file_merger_maker {
 	local $/ = $/;
 	local $_;
 	while(<$fh>) {
-	    if (defined(my $k = &{$sub})) {
-		unshift @src, [$k, $i++, $_, $fh, $/];
-		_resort($cmp, \@src);
+            if (my @k = $sub->()) {
+                @k == $typeslen
+                    or croak "wrong number of return values from merger callback, $typeslen expected, "
+                        . scalar(@k) . " found";
+		unshift @src, [$_, $fh, $/, @k, $i++];
+		_resort($typesu, \@src);
 		last;
 	    }
 	}
     }
 
-    # print Dumper(\@src);
-
     my $gen;
     $gen = sub {
 	if (wantarray) {
 	    my @all;
-	    while(@src) {
+            my $max = @_ ? $_[0] : 1;
+	    while((!defined $max or $max--) and @src) {
 		push @all, scalar(&$gen);
 	    }
 	    return @all;
 	}
 	else {
 	    if (@src) {
-		my $src=$src[0];
-		my $old_v=$src->[VALUE];
+		my $src = $src[0];
+		my $old_v = $src->[VALUE];
 		local *_ = \($src->[VALUE]);
 		local */ = \($src->[RS]);   # emacs syntax higlighting breaks here/;
-		my $fh=$src->[FILE];
+		my $fh = $src->[FILE];
 		while(<$fh>) {
-		    if (defined ($src->[KEY]=&{$sub})) {
-			_resort($cmp, \@src);
-			return $old_v;
-		    }
+                    if (my @k = &{$sub}) {
+                        @k == $typeslen
+                            or croak "wrong number of return values from merger callback, $typeslen expected, "
+                                . scalar(@k) . " found";
+                        $src->[VALUE] = $_;
+                        splice @$src, KEY0, $typeslen, @k;
+                        _resort($typesu, \@src);
+                        return $old_v;
+                    }
 		}
 		shift @src;
 		return $old_v;
@@ -149,17 +214,44 @@ sub _file_merger_maker {
     };
 }
 
-
 sub filekeymerger (&@) {
     my $sort = ((caller(0))[8] & $locale_hints)
 	? LOC_STR_SORT : STR_SORT;
-    _file_merger_maker( $sort, @_ )
+    _make_file_merger( pack(C => $sort), @_ )
+}
+
+sub rfilekeymerger (&@) {
+    my $sort = ((caller(0))[8] & $locale_hints)
+	? LOC_STR_SORT : STR_SORT;
+    _make_file_merger( pack(C => $sort|REV_SORT), @_ )
 }
 
 sub nfilekeymerger (&@) {
     my $sort = ((caller(0))[8] & $int_hints)
 	? INT_SORT : NUM_SORT;
-    _file_merger_maker( $sort, @_ )
+    _make_file_merger( pack(C => $sort), @_ )
+}
+
+sub rnfilekeymerger (&@) {
+    my $sort = ((caller(0))[8] & $int_hints)
+	? INT_SORT : NUM_SORT;
+    _make_file_merger( pack(C => $sort|REV_SORT), @_ )
+}
+
+sub ifilekeymerger (&@) {
+    _make_file_merger( pack(C => INT_SORT), @_ )
+}
+
+sub rifilekeymerger (&@) {
+    _make_file_merger( pack(C => INT_SORT|REV_SORT), @_ )
+}
+
+sub ufilekeymerger (&@) {
+    _make_file_merger( pack(C => INT_SORT), @_ )
+}
+
+sub rufilekeymerger (&@) {
+    _make_file_merger( pack(C => INT_SORT|REV_SORT), @_ )
 }
 
 
@@ -193,7 +285,7 @@ Sort::Key::Merger - Perl extension for merging sorted things
 	  next if /^\s*$/;
 	  chomp;
 	  if (my ($key, $value) = /^(\S+)\s+(.*)$/) {
-	      return ($key, $value)
+	      return ($value, $key)
 	  }
 	  warn "bad line $_"
       }
@@ -213,54 +305,69 @@ Sort::Key::Merger - Perl extension for merging sorted things
   }
 
 
+=head1 WARNING!!!
+
+Several backward imcompatible changes has been introduced in version
+0.10:
+
+    - filekeymerger callbacks are now called on list context
+    - order of return values on keymerger callback has changed
+    - in list context only the next value is returned by default
+      instead of all the remaining ones
 
 =head1 DESCRIPTION
 
-Sort::Key::Merger allows to merge presorted collections of I<things>
-based on some (calculated) key.
+Sort::Key::Merger merges presorted collections of data based on some
+(calculated) keys.
 
-=head2 EXPORT
-
-None by default.
-
-The functions described below can be exported requesting so
-explicitly, i.e.:
-
-  use Sort::Key::Merger qw(keymerger);
-
+Given 
 
 =head2 FUNCTIONS
 
+The following functions are available from this module:
+
 =over 4
 
-=item keymerger { generate_key_value_pair } @sources;
+=item keymerger { GENERATE_VALUE_KEY_PAIR($_) } @sources;
 
-merges the (presorted) generated values sorted by their keys
-lexicographically.
+creates a merger object for the given C<@sources> collections.
 
 Every item in C<@source> is aliased by $_ and then the user defined
-subroutine C<generate_key_value_pair> called. The result from that
-subroutine call should be a (key, value) pair. Keys are used to
-determine the order in which the values are sorted and returned.
+subroutine C<GENERATE_VALUE_KEY_PAIR> called. The result from that
+callback should be a (value, key) pair. Keys are used to determine the
+order in which the values are sorted.
 
-C<generate_key_value_pair> can return an empty list to indicate that a
+C<GENERATE_VALUE_KEY_PAIR> can return an empty list to indicate that a
 source has become exhausted.
 
 The result from C<keymerger> is another subroutine that works as a
 generator. It can be called as:
 
-  my $next = &$merger;
-
-or
-
   my $next = $merger->();
 
+  my @next = $merger->($n);
+
+
 In scalar context it returns the next value or undef if all the
-sources have been exhausted. In list context it returns all the values
-remaining from the sources merged in a sorted list.
+sources have been exhausted. In list context it returns the next $n
+values (1 is used as the deault value for $n).
+
+If your data can contain undef values, you should iterate over the
+sorted values as follows:
+
+  my $merger = keymerger ...;
+
+  while (my ($next) = $merger->()) {
+     # do whatever with $next
+     # ...
+  }
+
+Passing -1 makes the function return all the remaining values:
+
+  my @remaining = $merger->(-1);
 
 NOTE: an additional argument is passed to the
-C<generate_key_value_pair> callback in C<$_[0]>. It is to be used as a
+C<GENERATE_VALUE_KEY_PAIR> callback in C<$_[0]>. It is to be used as a
 scrachpad, its value is associated to the current source and will
 perdure between calls from the same generator, i.e.:
 
@@ -282,11 +389,29 @@ perdure between calls from the same generator, i.e.:
 
 This function honours the C<use locale> pragma.
 
-=item nkeymerger { generate_key_value_pair } @sources
+=item nkeymerger { GENERATE_VALUE_KEY_PAIR($_) } @sources
 
 is like C<keymerger> but compares the keys numerically.
 
 This function honours the C<use integer> pragma.
+
+=item ikeymerger
+
+Similar to C<keymerger> but Compares the keys as integers.
+
+=item ukeymerger
+
+Compares the keys as unsigned integers.
+
+=item rkeymerger
+
+=item rnkeymerger
+
+=item rikeymerger
+
+=item rukeymerger
+
+performs the sorting in reverse order.
 
 =item filekeymerger { generate_key } @files;
 
@@ -302,7 +427,7 @@ line is ignored.
 The line can be modified inside C<generate_key> changing C<$_>, i.e.:
 
   my $merger = filekeymerger {
-      chomp($_); #             <-- here
+      chomp($_); #             <== here
       return undef if /^\s*$/;
       substr($_, -1, 10)
   } @ARGV;
@@ -312,11 +437,13 @@ Finally, C<$/> can be changed from its default value to read the files
 in chunks other than lines.
 
 The return value from this function is a subroutine reference that on
-successive calls returns the sorted elements; or all elements in one
-go when called in list context, i.e.:
+successive calls returns the sorted elements in the same fashion as
+the iterator returned from C<keymerger>.
 
   my $merger = filekeymerger { (split)[0] } @ARGV;
-  my @sorted = $merger->();
+  while (my ($next) = $merger->(1)) {
+    ...
+  }
 
 
 This function honours the C<use locale> pragma.
@@ -327,19 +454,59 @@ is like C<filekeymerger> but the keys are compared numerically.
 
 This function honours the C<use integer> pragma.
 
+=item ifilekeymerger
+
+similar to filekeymerger bug compares the keys as integers.
+
+=item ufilekeymerger
+
+similar to filekeymerger bug compares the keys as unsigned integers.
+
+=item rfilekeymerger
+
+=item rnfilekeymerger
+
+=item rifilekeymerger
+
+=item rufilekeymerger
+
+perform the sorting in reverse order.
+
+=item multikeymerger { GENERATE_VALUE_KEYS_LIST($_) } \@types, @sources
+
+This function generates a multikey merger.
+
+C<GENERATE_VALUE_KEYS_LIST> should return a list with the next value
+from the source passed in C<$_> and the sorting keys.
+
+C<@types> is an array with the key sorting types (ee L<Sort::Key>
+multikey sorting documentation for a discussion on the supported
+types).
+
+For instance:
+
+  my $merger = multikeymerger {
+      my $v = shift $@_;
+      my $name = $v->name;
+      my $age = $v->age;
+      ($v, $age, $name)
+  } [qw(-integer string)], @data_sources;
+
+  while (my ($next) = $merger->()) {
+      print "$next\n";
+  }
+
 =back
 
 =head1 SEE ALSO
 
-L<Sort::Key>, L<locale>, L<integer>, perl core L<sort> function.
-
-=head1 AUTHOR
-
-Salvador FandiE<ntilde>o, E<lt>sfandino@yahoo.comE<gt>
+L<Sort::Key>, L<Sort::Key::External>, L<locale>, L<integer>, perl core
+L<sort> function.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2005 by Salvador FandiE<ntilde>o.
+Copyright (C) 2005, 2007 by Salvador FandiE<ntilde>o,
+E<lt>sfandino@yahoo.comE<gt>.
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.4 or,

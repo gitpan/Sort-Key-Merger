@@ -1,3 +1,5 @@
+/* -*- Mode: C -*- */
+
 #define PERL_NO_GET_CONTEXT 1
 
 #include "EXTERN.h"
@@ -6,14 +8,23 @@
 
 #include "ppport.h"
 
-static I32
+#define KEY0 3
+
+static int
 sv_icmp(pTHX_ SV *a, SV *b) {
     IV iv1 = SvIV(a);
     IV iv2 = SvIV(b);
     return iv1 < iv2 ? -1 : iv1 > iv2 ? 1 : 0;
 }
 
-static I32
+static int
+sv_ucmp(pTHX_ SV *a, SV *b) {
+    UV uv1 = SvUV(a);
+    UV uv2 = SvUV(b);
+    return uv1 < uv2 ? -1 : uv1 > uv2 ? 1 : 0;
+}
+
+static int
 sv_ncmp(pTHX_ SV *a, SV *b) {
     NV nv1 = SvNV(a);
     NV nv2 = SvNV(b);
@@ -31,67 +42,89 @@ sv_ncmp(pTHX_ SV *a, SV *b) {
 MODULE = Sort::Key::Merger		PACKAGE = Sort::Key::Merger		
 PROTOTYPES: DISABLE
 
-#define SRCIJ(i, j) ((AvARRAY((AV*)(SvRV(srci[i]))))[j])
-
-
 void
-_resort(I32 type, AV *src)
+_resort(SV *type, AV *src)
 PREINIT:
     I32 (*cmp)(pTHX_ SV *, SV *);
-    int min, max, pv;
-    SV **srci, **src0j, *k0, *i0;
+    int min, max, pivot;
+    SV **srci, **key0, **keypivot;
     SV *src0;
+    STRLEN type_len;
+    unsigned char *type_pv;
 PPCODE:
-    switch (type) {
-    case 0:
-        cmp=&Perl_sv_cmp;
-        break;
-    case 1:
-        cmp=&Perl_sv_cmp_locale;
-        break;
-    case 2:
-        cmp=&sv_ncmp;
-        break;
-    case 3:
-        cmp=&sv_icmp;
-        break;
-    }
-    max=av_len(src);
-    if (max>0) {
-	min=0;
+    type_pv = SvPV(type, type_len);
+    max = av_len(src);
+    /* printf("max: %d\n", max); fflush(stdout); */
+    if (max > 0) {
+	min = 0;
 	srci = AvARRAY(src);
 	src0 = srci[0];
-	src0j = AvARRAY((AV*)(SvRV(src0)));
-	k0 = src0j[0];
-	/* Perl_warn(aTHX_ "s: 0 (%_, %_), min %d, max %d\n",
-	             k0, SRCIJ(0, 1), min, max); */
-	for (pv=1; min<max; pv=(max+min+1)>>1) {
-	    SV **srcpvj = AvARRAY((AV*)(SvRV(srci[pv])));
-	    I32 c=(*cmp)(aTHX_ k0, srcpvj[0]);
-	    if (c<0) {
-		max=pv-1;
+	key0 = AvARRAY((AV*)(SvRV(src0))) + KEY0;
+
+        for (pivot = 1; min < max; pivot = (max + min + 1) / 2) {
+            int k;
+	    SV **keypivot = AvARRAY((AV*)(SvRV(srci[pivot]))) + KEY0;
+
+            /* fprintf(stderr, "min: %d, max: %d\n", min, max); fflush(stderr); */
+            
+            for (k = 0; ; k++) {
+                int cmp;
+
+                if (k > type_len)
+                    Perl_croak(aTHX_ "internal error: sorting order is ambiguous");
+                
+                switch (type_pv[k]) {
+                case 0:
+                    cmp = sv_cmp(key0[k], keypivot[k]);
+                    break;
+                case 1:
+                    cmp = sv_cmp_locale(key0[k], keypivot[k]);
+                    break;
+                case 2:
+                    cmp = sv_ncmp(aTHX_ key0[k], keypivot[k]);
+                    break;
+                case 3:
+                    cmp = sv_icmp(aTHX_ key0[k], keypivot[k]);
+                    break;
+                case 4:
+                    cmp = sv_ucmp(aTHX_ key0[k], keypivot[k]);
+                    break;
+                case 128:
+                    cmp = sv_cmp(keypivot[k], key0[k]);
+                    break;
+                case 129:
+                    cmp = sv_cmp_locale(keypivot[k], key0[k]);
+                    break;
+                case 130:
+                    cmp = sv_ncmp(aTHX_ keypivot[k], key0[k]);
+                    break;
+                case 131:
+                    cmp = sv_icmp(aTHX_ keypivot[k], key0[k]);
+                    break;
+                case 132:
+                    cmp = sv_ucmp(aTHX_ keypivot[k], key0[k]);
+                    break;
+                default:
+                    Perl_croak(aTHX_ "bad key type %d", type_pv[k]);
+                }
+
+                if (cmp < 0) {
+                    max = pivot - 1;
+                    break;
+                }
+                if (cmp > 0) {
+                    min = pivot;
+                    break;
+                }
 	    }
-	    else if (c>0) {
-		min=pv;
-	    }
-	    else {
-		int i0 = SvIV(src0j[1]);
-		int ipv = SvIV(srcpvj[1]);
-		if (i0>ipv) {
-		    min=pv;
-		}
-		else {
-		    max=pv-1;
-		}
-	    }
-	    /* Perl_warn(aTHX_ "pv: %d (%_, %_), min %d, max %d\n",
-                         pv, SRCIJ(pv, 0), SRCIJ(pv, 1), min, max); */
-	}
-	if (min>0) {
+        }
+	if (min > 0) {
 	    int i;
-	    for (i=0; i<min; i++) {
-		srci[i]=srci[i+1];
+	    for (i = 0; i < min; i++) {
+		srci[i] = srci[i + 1];
 	    }
-	    srci[min]=src0;
+	    srci[min] = src0;
 	}
     }
+    XSRETURN(0);
+

@@ -4,6 +4,7 @@ MANIFEST
 README
 t/merge.t
 t/mergefiles.t
+t/simple.t
 t/data1
 t/data2
 t/data3

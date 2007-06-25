@@ -16,10 +16,10 @@ use Sort::Key::Merger qw(keymerger nkeymerger);
 
 sub make_key ($) { $_[0] }
 
-sub key_value {
+sub value_key {
     if (@$_) {
-	my $v=shift @$_;
-	return (make_key($v), $v);
+	my $v = shift @$_;
+	return ($v, make_key($v));
     }
     ()
 }
@@ -29,16 +29,16 @@ for my $i (sizes) {
 	my @srcs;
 	for my $u (0..$i) {
 	    my @src;
-	    for my $v (1..rand($j)) {
+	    for my $v (0..rand($j)) {
 		push @src, 1000-rand(2000);
 	    }
 	    push @srcs, \@src;
 	}
 
 	{
-	    my $merger = keymerger \&key_value, (map { [keysort { make_key($_)} @$_] } @srcs);
+	    my $merger = keymerger \&value_key, (map { [keysort { make_key($_)} @$_] } @srcs);
 
-	    my @ksm = &$merger;
+	    my @ksm = $merger->(-1);
 	    my @ks = keysort { make_key($_) } (map { @$_ } @srcs);
 
 	    # D("@ksm", "@ks") and print "$a is not the same as\n$b\n";
@@ -47,9 +47,9 @@ for my $i (sizes) {
 	}
 
 	{
-	    my $merger = nkeymerger \&key_value, (map { [nkeysort { make_key($_)} @$_] } @srcs);
+	    my $merger = nkeymerger \&value_key, (map { [nkeysort { make_key($_)} @$_] } @srcs);
 
-	    my @ksm = &$merger;
+	    my @ksm = $merger->(-1);
 	    my @ks = nkeysort { make_key($_) } (map { @$_ } @srcs);
 
 	    # D("@ksm", "@ks") and print "$a is not the same as\n$b\n";
@@ -72,9 +72,9 @@ for my $i (sizes) {
 
 	{
 	    use integer;
-	    my $merger = nkeymerger \&key_value, (map { [nkeysort { make_key($_)} @$_] } @srcs);
+	    my $merger = nkeymerger \&value_key, (map { [nkeysort { make_key($_)} @$_] } @srcs);
 
-	    my @ksm = &$merger;
+	    my @ksm = $merger->(-1);
 	    my @ks = nkeysort { make_key($_) } (map { @$_ } @srcs);
 
 	    # D("@ksm", "@ks") and print "$a is not the same as\n$b\n";
